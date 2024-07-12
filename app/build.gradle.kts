@@ -1,8 +1,6 @@
+import com.android.build.gradle.internal.cxx.configure.gradleLocalProperties
 import com.mikepenz.aboutlibraries.plugin.DuplicateMode.MERGE
 import com.mikepenz.aboutlibraries.plugin.DuplicateRule.GROUP
-import java.time.Instant
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 
 val isRelease: Boolean
     get() = gradle.startParameter.taskNames.any { it.contains("Release") }
@@ -17,11 +15,15 @@ plugins {
     alias(libs.plugins.spotless)
     alias(libs.plugins.aboutlibrariesPlugin)
     alias(libs.plugins.composeCompilerReportGenerator)
+    alias(libs.plugins.baselineprofile)
 }
 
+val supportedAbis = arrayOf("arm64-v8a", "x86_64", "armeabi-v7a")
+
 android {
-    compileSdk = 34
-    ndkVersion = "27.0.11718014-beta1"
+    compileSdk = if (isRelease) 35 else 34
+    buildToolsVersion = "35.0.0"
+    ndkVersion = "27.0.11902837-rc1"
     androidResources.generateLocaleConfig = true
 
     splits {
@@ -29,7 +31,7 @@ android {
             isEnable = true
             reset()
             if (isRelease) {
-                include("arm64-v8a", "x86_64", "armeabi-v7a")
+                include(*supportedAbis)
                 isUniversalApk = true
             } else {
                 include("arm64-v8a", "x86_64")
@@ -50,10 +52,9 @@ android {
         commandLine = "git rev-parse --short=7 HEAD".split(' ')
     }.standardOutput.asText.get().trim()
 
-    val buildTime by lazy {
-        val formatter = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm").withZone(ZoneOffset.UTC)
-        formatter.format(Instant.now())
-    }
+    val commitTime = providers.exec {
+        commandLine = "git log -1 --format=%ct".split(' ')
+    }.standardOutput.asText.get().trim()
 
     val repoName = providers.exec {
         commandLine = "git remote get-url origin".split(' ')
@@ -63,11 +64,14 @@ android {
     val chromeVersion = rootProject.layout.projectDirectory.file("chrome-for-testing/LATEST_RELEASE_STABLE").asFile
         .readText().substringBefore('.')
 
+    val githubToken = gradleLocalProperties(rootDir, providers)["GITHUB_TOKEN"] as? String
+        ?: System.getenv("GITHUB_TOKEN").orEmpty()
+
     defaultConfig {
         applicationId = "moe.tarsin.ehviewer"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 180055
+        targetSdk = 35
+        versionCode = 180058
         versionName = "1.12.0"
         versionNameSuffix = "-SNAPSHOT"
         resourceConfigurations.addAll(
@@ -88,9 +92,14 @@ android {
         )
         buildConfigField("String", "RAW_VERSION_NAME", "\"$versionName${versionNameSuffix.orEmpty()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"$commitSha\"")
+        buildConfigField("long", "COMMIT_TIME", commitTime)
         buildConfigField("String", "REPO_NAME", "\"$repoName\"")
         buildConfigField("String", "CHROME_VERSION", "\"$chromeVersion\"")
+        buildConfigField("String", "GITHUB_TOKEN", "\"$githubToken\"")
         ndk {
+            if (isRelease) {
+                abiFilters.addAll(supportedAbis)
+            }
             debugSymbolLevel = "FULL"
         }
         externalNativeBuild {
@@ -121,33 +130,10 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
-    kotlinOptions {
-        freeCompilerArgs = listOf(
-            // https://kotlinlang.org/docs/compiler-reference.html#progressive
-            "-progressive",
-            "-Xjvm-default=all",
-            "-Xcontext-receivers",
-
-            "-opt-in=coil3.annotation.ExperimentalCoilApi",
-            "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi",
-            "-opt-in=androidx.compose.ui.ExperimentalComposeUiApi",
-            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
-            "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
-            "-opt-in=androidx.paging.ExperimentalPagingApi",
-            "-opt-in=kotlin.contracts.ExperimentalContracts",
-            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
-            "-opt-in=kotlinx.coroutines.FlowPreview",
-            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
-            "-opt-in=splitties.experimental.ExperimentalSplittiesApi",
-            "-opt-in=splitties.preferences.DataStorePreferencesPreview",
-        )
-    }
-
     lint {
+        checkReleaseBuilds = false
         disable += setOf("MissingTranslation", "MissingQuantity")
-        fatal += setOf("NewApi", "InlinedApi")
+        error += setOf("InlinedApi")
     }
 
     packaging {
@@ -164,14 +150,19 @@ android {
             isShrinkResources = true
             proguardFiles("proguard-rules.pro")
             signingConfig = signConfig
-            buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
         }
         debug {
             applicationIdSuffix = ".debug"
-            buildConfigField("String", "BUILD_TIME", "\"\"")
             lint {
                 abortOnError = false
             }
+        }
+        create("benchmarkRelease") {
+            initWith(buildTypes.getByName("release"))
+            matchingFallbacks += listOf("release")
+            applicationIdSuffix = ".benchmark"
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
         }
     }
 
@@ -198,6 +189,10 @@ androidComponents {
             "**.bin",
         )
     }
+}
+
+baselineProfile {
+    mergeIntoMain = true
 }
 
 dependencies {
@@ -229,14 +224,14 @@ dependencies {
     implementation(libs.androidx.paging.compose)
 
     implementation(libs.androidx.recyclerview)
+    implementation(libs.androidx.viewpager2)
 
     // https://developer.android.com/jetpack/androidx/releases/room
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.room.paging)
 
     implementation(libs.androidx.work.runtime)
-    implementation(libs.photoview) // Dead Dependency
-    implementation(libs.directionalviewpager) // Dead Dependency
+    implementation(libs.photoview)
     implementation(libs.material.motion.core)
 
     implementation(libs.bundles.splitties)
@@ -253,10 +248,11 @@ dependencies {
 
     implementation(libs.insetter) // Dead Dependency
 
-    implementation(libs.reorderable)
+    // implementation(libs.reorderable)
 
     implementation(platform(libs.arrow.stack))
     implementation(libs.arrow.fx.coroutines)
+    implementation(libs.arrow.resilience)
 
     // https://coil-kt.github.io/coil/changelog/
     implementation(platform(libs.coil.bom))
@@ -276,12 +272,38 @@ dependencies {
 
     implementation(libs.cronet.embedded)
 
+    implementation(libs.androidx.profileinstaller)
+    "baselineProfile"(project(":benchmark"))
+
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.compose.ui.tooling.preview)
 }
 
 kotlin {
     jvmToolchain(21)
+    compilerOptions {
+        freeCompilerArgs = listOf(
+            // https://kotlinlang.org/docs/compiler-reference.html#progressive
+            "-progressive",
+            "-Xjvm-default=all",
+            "-Xcontext-receivers",
+
+            "-opt-in=coil3.annotation.ExperimentalCoilApi",
+            "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi",
+            "-opt-in=androidx.compose.ui.ExperimentalComposeUiApi",
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+            "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
+            "-opt-in=androidx.paging.ExperimentalPagingApi",
+            "-opt-in=kotlin.contracts.ExperimentalContracts",
+            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
+            "-opt-in=kotlinx.coroutines.FlowPreview",
+            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
+            "-opt-in=splitties.experimental.ExperimentalSplittiesApi",
+            "-opt-in=splitties.preferences.DataStorePreferencesPreview",
+        )
+    }
 }
 
 ksp {
@@ -294,13 +316,15 @@ aboutLibraries {
     duplicationRule = GROUP
 }
 
+val ktlintVersion = libs.ktlint.get().version
+
 spotless {
     kotlin {
         // https://github.com/diffplug/spotless/issues/111
         target("src/**/*.kt")
-        ktlint()
+        ktlint(ktlintVersion)
     }
     kotlinGradle {
-        ktlint()
+        ktlint(ktlintVersion)
     }
 }

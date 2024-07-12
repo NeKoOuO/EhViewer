@@ -10,9 +10,11 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import com.hippo.ehviewer.client.CHROME_USER_AGENT
+import com.hippo.ehviewer.client.EhCookieStore
 import com.hippo.ehviewer.client.data.FavListUrlBuilder
 import com.hippo.ehviewer.download.DownloadsFilterMode
 import com.hippo.ehviewer.download.SortMode
+import com.hippo.ehviewer.util.AppConfig
 import eu.kanade.tachiyomi.ui.reader.setting.OrientationType
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingModeType
 import java.util.Locale
@@ -98,6 +100,7 @@ fun <T> PrefDelegate<T>.asMutableState(): MutableState<T> {
 object Settings : DataStorePreferences(null) {
     private const val KEY_SHOW_TAG_TRANSLATIONS = "show_tag_translations"
 
+    @Suppress("ktlint:standard:backing-property-naming")
     private val _favFlow = MutableSharedFlow<Unit>()
     val favChangesFlow = _favFlow.debounce(1000)
     var favCat by stringArrayPref("fav_cat", 10, "Favorites").emitTo(_favFlow)
@@ -110,6 +113,8 @@ object Settings : DataStorePreferences(null) {
     val listThumbSize = intPref("list_tile_size", 40)
     val languageFilter = intPref("language_filter", -1)
     val downloadSortMode = intPref("download_sort_mode", SortMode.Default.flag)
+    val downloadFilterMode = intPref("download_filter_mode", DownloadsFilterMode.Default.flag)
+    val hasSignedIn = boolPref("has_signed_in", EhCookieStore.hasSignedIn())
     val meteredNetworkWarning = boolPref("cellular_network_warning", false)
     val blackDarkTheme = boolPref("black_dark_theme", false)
     val gridView = boolPref("grid_view", false)
@@ -118,8 +123,7 @@ object Settings : DataStorePreferences(null) {
     val security = boolPref("require_unlock", false)
     val animateItems = boolPref("animate_items", true)
     val displayName = stringOrNullPref("display_name", null)
-    val recentDownloadLabel = stringOrNullPref("recent_download_label", null)
-    val downloadFilterMode = intPref("download_filter_mode", DownloadsFilterMode.Default.flag)
+    val recentDownloadLabel = stringOrNullPref("recent_download_label", "")
 
     var downloadScheme by stringOrNullPref("image_scheme", null)
     var downloadAuthority by stringOrNullPref("image_authority", null)
@@ -137,6 +141,7 @@ object Settings : DataStorePreferences(null) {
     var readCacheSize by intPref("read_cache_size_2", 640)
     var launchPage by intPref("launch_page_2", 0)
     var commentThreshold by intPref("comment_threshold", -101)
+    var hardwareBitmapThreshold by intPref("hardware_bitmap_threshold", 16384)
     var forceEhThumb by boolPref("force_eh_thumb", false)
     var showComments by boolPref("show_gallery_comments", true)
     var requestNews by boolPref("request_news", false).observed { updateWhenRequestNewsChanges() }
@@ -146,7 +151,7 @@ object Settings : DataStorePreferences(null) {
     var appLinkVerifyTip by boolPref("app_link_verify_tip", false)
     var enabledSecurity by boolPref("enable_secure", false)
     var backupBeforeUpdate by boolPref("backup_before_update", true)
-    var useCIUpdateChannel by boolPref("ci_update_channel", false)
+    var useCIUpdateChannel by boolPref("ci_update_channel", AppConfig.isSnapshot)
     var mediaScan by boolPref("media_scan", false).observed { updateWhenKeepMediaStatusChanges() }
     var hasDefaultDownloadLabel by boolPref("has_default_download_label", false)
     var saveParseErrorBody by boolPref("save_parse_error_body", true)
@@ -168,8 +173,7 @@ object Settings : DataStorePreferences(null) {
     var recentToplist by stringPref("recent_toplist", "11")
     var userAgent by stringPref("user_agent", CHROME_USER_AGENT)
     var defaultDownloadLabel by stringOrNullPref("default_download_label", null)
-    var language by stringPref("app_language", "system").observed { updateWhenLocaleChanges() }
-    var lastUpdateTime by longPref("last_update_time", 0)
+    var lastUpdateTime by longPref("last_update_time", BuildConfig.COMMIT_TIME)
 
     // Tachiyomi Reader
     var newReader by boolPref("new_compose_reader", false)
@@ -223,7 +227,7 @@ object Settings : DataStorePreferences(null) {
     private fun intArrayPref(key: String, count: Int) = object : Delegate<IntArray> {
         override val flowGetter: () -> Flow<Unit> = { _value.asFlow().flatMapMerge { it.changesFlow() }.conflate() }
 
-        @Suppress("ktlint:standard:property-naming")
+        @Suppress("ktlint:standard:backing-property-naming")
         private var _value = (0 until count).map { intPref("${key}_$it", 0) }.toTypedArray()
         override fun getValue(thisRef: Any?, prop: KProperty<*>?): IntArray = _value.map { it.value }.toIntArray()
         override fun setValue(thisRef: Any?, prop: KProperty<*>?, value: IntArray) {
@@ -235,7 +239,7 @@ object Settings : DataStorePreferences(null) {
     private fun stringArrayPref(key: String, count: Int, defMetaValue: String) = object : Delegate<Array<String>> {
         override val flowGetter: () -> Flow<Unit> = { _value.asFlow().flatMapMerge { it.changesFlow() }.conflate() }
 
-        @Suppress("ktlint:standard:property-naming")
+        @Suppress("ktlint:standard:backing-property-naming")
         private var _value = (0 until count).map { stringPref("${key}_$it", "$defMetaValue $it") }.toTypedArray()
         override fun getValue(thisRef: Any?, prop: KProperty<*>?): Array<String> = _value.map { it.value }.toTypedArray()
         override fun setValue(thisRef: Any?, prop: KProperty<*>?, value: Array<String>) {

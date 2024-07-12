@@ -60,7 +60,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -113,7 +112,6 @@ import com.hippo.ehviewer.download.DownloadManager as EhDownloadManager
 import com.hippo.ehviewer.ktbuilder.imageRequest
 import com.hippo.ehviewer.spider.SpiderDen
 import com.hippo.ehviewer.ui.GalleryInfoBottomSheet
-import com.hippo.ehviewer.ui.LockDrawer
 import com.hippo.ehviewer.ui.MainActivity
 import com.hippo.ehviewer.ui.composing
 import com.hippo.ehviewer.ui.confirmRemoveDownload
@@ -152,7 +150,8 @@ import com.hippo.ehviewer.util.displayString
 import com.hippo.ehviewer.util.findActivity
 import com.hippo.ehviewer.util.isAtLeastQ
 import com.hippo.ehviewer.util.requestPermission
-import com.hippo.unifile.asUniFile
+import com.hippo.files.delete
+import com.hippo.files.toOkioPath
 import com.ramcosta.composedestinations.annotation.Destination
 import com.ramcosta.composedestinations.annotation.RootGraph
 import com.ramcosta.composedestinations.navigation.DestinationsNavigator
@@ -164,6 +163,7 @@ import eu.kanade.tachiyomi.util.system.logcat
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.parcelize.Parcelize
@@ -185,21 +185,19 @@ data class TokenArgs(
 ) : GalleryDetailScreenArgs
 
 @StringRes
-private fun getRatingText(rating: Float): Int {
-    return when ((rating * 2).roundToInt()) {
-        0 -> R.string.rating0
-        1 -> R.string.rating1
-        2 -> R.string.rating2
-        3 -> R.string.rating3
-        4 -> R.string.rating4
-        5 -> R.string.rating5
-        6 -> R.string.rating6
-        7 -> R.string.rating7
-        8 -> R.string.rating8
-        9 -> R.string.rating9
-        10 -> R.string.rating10
-        else -> R.string.rating_none
-    }
+private fun getRatingText(rating: Float): Int = when ((rating * 2).roundToInt()) {
+    0 -> R.string.rating0
+    1 -> R.string.rating1
+    2 -> R.string.rating2
+    3 -> R.string.rating3
+    4 -> R.string.rating4
+    5 -> R.string.rating5
+    6 -> R.string.rating6
+    7 -> R.string.rating7
+    8 -> R.string.rating8
+    9 -> R.string.rating9
+    10 -> R.string.rating10
+    else -> R.string.rating_none
 }
 
 private fun List<GalleryTagGroup>.getArtistTag(): String? {
@@ -215,7 +213,6 @@ private fun List<GalleryTagGroup>.getArtistTag(): String? {
 @Destination<RootGraph>
 @Composable
 fun GalleryDetailScreen(args: GalleryDetailScreenArgs, navigator: DestinationsNavigator) = composing(navigator) {
-    LockDrawer(true)
     var galleryInfo by remember {
         val casted = args as? GalleryInfoArgs
         mutableStateOf<GalleryInfo?>(casted?.galleryInfo)
@@ -295,7 +292,7 @@ fun GalleryDetailScreen(args: GalleryDetailScreenArgs, navigator: DestinationsNa
     }
 
     val archiveResult = remember(galleryInfo) {
-        async(Dispatchers.IO, CoroutineStart.LAZY) {
+        async(Dispatchers.IO + Job(), CoroutineStart.LAZY) {
             val detail = galleryInfo as GalleryDetail
             EhEngine.getArchiveList(detail.archiveUrl!!, gid, token)
         }
@@ -567,7 +564,7 @@ fun GalleryDetailScreen(args: GalleryDetailScreenArgs, navigator: DestinationsNa
             val downloadTorrentStarted = stringResource(R.string.download_torrent_started)
             val noTorrents = stringResource(R.string.no_torrents)
             val torrentResult = remember(galleryDetail) {
-                async(Dispatchers.IO, CoroutineStart.LAZY) {
+                async(Dispatchers.IO + Job(), CoroutineStart.LAZY) {
                     EhEngine.getTorrentList(galleryDetail.torrentUrl!!, gid, token)
                 }
             }
@@ -590,7 +587,7 @@ fun GalleryDetailScreen(args: GalleryDetailScreenArgs, navigator: DestinationsNa
                         AppConfig.APP_DIRNAME + "/" + FileUtils.sanitizeFilename(name),
                     )
                     r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    r.addRequestHeader("Cookie", EhCookieStore.getCookieHeader(url))
+                    EhCookieStore.getCookieHeader(url)?.let { r.addRequestHeader("Cookie", it) }
                     downloadManager.enqueue(r)
                     showSnackbar(downloadTorrentStarted)
                 }
@@ -620,14 +617,12 @@ fun GalleryDetailScreen(args: GalleryDetailScreenArgs, navigator: DestinationsNa
             )
         }
         Spacer(modifier = Modifier.size(keylineMargin))
-        fun getAllRatingText(rating: Float, ratingCount: Int): String {
-            return getString(
-                R.string.rating_text,
-                getString(getRatingText(rating)),
-                rating,
-                ratingCount,
-            )
-        }
+        fun getAllRatingText(rating: Float, ratingCount: Int): String = getString(
+            R.string.rating_text,
+            getString(getRatingText(rating)),
+            rating,
+            ratingCount,
+        )
         var ratingText by rememberSaveable {
             mutableStateOf(getAllRatingText(galleryDetail.rating, galleryDetail.ratingCount))
         }
@@ -639,23 +634,22 @@ fun GalleryDetailScreen(args: GalleryDetailScreenArgs, navigator: DestinationsNa
                     showSnackbar(signInFirst)
                     return@launchIO
                 }
-                awaitPermissionOrCancel(title = R.string.rate) {
+                val pendingRating = awaitResult(galleryDetail.rating.coerceAtLeast(.5f), title = R.string.rate) {
                     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                        var rating by remember { mutableFloatStateOf(galleryDetail.rating.coerceAtLeast(.5f)) }
-                        var text by remember { mutableIntStateOf(getRatingText(rating)) }
+                        var text by remember { mutableIntStateOf(getRatingText(expectedValue)) }
                         Text(text = stringResource(id = text), style = MaterialTheme.typography.bodyLarge)
                         Spacer(modifier = Modifier.size(keylineMargin))
                         GalleryRatingBar(
-                            rating = rating,
+                            rating = expectedValue,
                             onRatingChange = {
-                                rating = it.coerceAtLeast(.5f)
-                                text = getRatingText(rating)
+                                expectedValue = it.coerceAtLeast(.5f)
+                                text = getRatingText(expectedValue)
                             },
                         )
                     }
                 }
                 galleryDetail.runSuspendCatching {
-                    EhEngine.rateGallery(apiUid, apiKey, gid, token, rating)
+                    EhEngine.rateGallery(apiUid, apiKey, gid, token, pendingRating)
                 }.onSuccess { result ->
                     galleryInfo = galleryDetail.apply {
                         rating = result.rating
@@ -1077,12 +1071,12 @@ fun GalleryDetailScreen(args: GalleryDetailScreenArgs, navigator: DestinationsNa
                                     } else {
                                         val info = galleryInfo!!
                                         val uri = awaitActivityResult(
-                                            CreateDocument("application/x-cbz"),
+                                            CreateDocument("application/vnd.comicbook+zip"),
                                             EhUtils.getSuitableTitle(info) + ".cbz",
                                         )
                                         val dirname = downloadInfo?.dirname
                                         if (uri != null && dirname != null) {
-                                            val file = uri.asUniFile()
+                                            val file = uri.toOkioPath()
                                             val msg = runCatching {
                                                 bgWork {
                                                     withIOContext {
