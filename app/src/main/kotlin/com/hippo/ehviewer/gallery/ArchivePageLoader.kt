@@ -16,6 +16,7 @@
 package com.hippo.ehviewer.gallery
 
 import android.os.ParcelFileDescriptor
+import com.hippo.ehviewer.Settings
 import com.hippo.ehviewer.Settings.archivePasswds
 import com.hippo.ehviewer.image.ByteBufferSource
 import com.hippo.ehviewer.image.Image
@@ -35,6 +36,7 @@ import eu.kanade.tachiyomi.util.system.logcat
 import java.nio.ByteBuffer
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -51,24 +53,23 @@ class ArchivePageLoader(
     private val file: Path,
     gid: Long = 0,
     startPage: Int = 0,
+    private val hasAds: Boolean = false,
     passwdProvider: PasswdProvider? = null,
 ) : PageLoader2(gid, startPage) {
     private lateinit var pfd: ParcelFileDescriptor
-    private val hostJob = launch(start = CoroutineStart.LAZY) {
+    private val hostJob = async(start = CoroutineStart.LAZY) {
         logcat(DEBUG_TAG) { "Open archive ${file.toUri().displayPath}" }
         pfd = file.openFileDescriptor("r")
-        size = openArchive(pfd.fd, pfd.statSize, gid == 0L || file.name.endsWith(".zip"))
-        if (size == 0) {
-            return@launch
-        }
-        if (passwdProvider != null && needPassword()) {
+        val size = openArchive(pfd.fd, pfd.statSize, gid == 0L || file.name.endsWith(".zip"))
+        if (size != 0 && passwdProvider != null && needPassword()) {
             archivePasswds?.forEach {
                 it ?: return@forEach
-                if (providePassword(it)) return@launch
+                if (providePassword(it)) return@async size
             }
             val toAdd = passwdProvider { providePassword(it) }
             archivePasswds = archivePasswds?.toMutableSet()?.apply { add(toAdd) } ?: setOf(toAdd)
         }
+        size
     }
 
     override var size = 0
@@ -105,6 +106,8 @@ class ArchivePageLoader(
         }
     }
 
+    private fun mayBeAd(index: Int) = index > size - 10
+
     private suspend fun doRealWork(index: Int) {
         val buffer = extractToByteBuffer(index) ?: return notifyPageFailed(index, null)
         check(buffer.isDirect)
@@ -121,7 +124,7 @@ class ArchivePageLoader(
             src.close()
             throw it
         }
-        val image = Image.decode(src) ?: return notifyPageFailed(index, null)
+        val image = Image.decode(src, hasAds && Settings.stripExtraneousAds.value && mayBeAd(index)) ?: return notifyPageFailed(index, null)
         runCatching {
             currentCoroutineContext().ensureActive()
         }.onFailure {
@@ -136,16 +139,12 @@ class ArchivePageLoader(
     }
 
     override suspend fun awaitReady(): Boolean {
-        hostJob.join()
-        return super.awaitReady() && size != 0
+        size = hostJob.await()
+        return super.awaitReady() && isReady
     }
 
     override val isReady: Boolean
         get() = size != 0
-
-    override fun onCancelRequest(index: Int) {
-        mJobMap[index]?.cancel()
-    }
 
     override val title by lazy {
         FileUtils.getNameFromFilename(file.name)!!
@@ -162,7 +161,7 @@ class ArchivePageLoader(
         false
     }
 
-    override fun preloadPages(pages: List<Int>, pair: Pair<Int, Int>) {}
+    override fun prefetchPages(pages: List<Int>, bounds: Pair<Int, Int>) = Unit
 }
 
 private const val DEBUG_TAG = "ArchivePageLoader"

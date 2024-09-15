@@ -11,6 +11,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -19,44 +20,50 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import coil3.BitmapImage
 import coil3.DrawableImage
-import coil3.Image
+import coil3.compose.AsyncImagePainter
+import coil3.compose.SubcomposeAsyncImage
+import coil3.compose.SubcomposeAsyncImageContent
 import com.google.accompanist.drawablepainter.DrawablePainter
 import com.hippo.ehviewer.R
 import com.hippo.ehviewer.Settings
 import com.hippo.ehviewer.collectAsState
+import com.hippo.ehviewer.image.Image
+import com.hippo.ehviewer.ui.settings.AdsPlaceholderFile
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.loader.PageLoader
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.viewer.CombinedCircularProgressIndicator
-import me.saket.telephoto.zoomable.ZoomableContentLocation
-import me.saket.telephoto.zoomable.ZoomableState
+import kotlinx.coroutines.flow.drop
 import moe.tarsin.kt.unreachable
 
 @Composable
 fun PagerItem(
     page: ReaderPage,
     pageLoader: PageLoader,
-    zoomableState: ZoomableState,
-    webtoon: Boolean,
+    contentScale: ContentScale,
+    modifier: Modifier = Modifier,
+    contentModifier: Modifier = Modifier,
 ) {
+    LaunchedEffect(Unit) {
+        pageLoader.request(page.index)
+        page.status.drop(1).collect {
+            if (page.status.value == Page.State.QUEUE) {
+                pageLoader.request(page.index)
+            }
+        }
+    }
     val defaultError = stringResource(id = R.string.decode_image_error)
     val state by page.status.collectAsState()
     when (state) {
         Page.State.QUEUE, Page.State.LOAD_PAGE, Page.State.DOWNLOAD_IMAGE -> {
-            LaunchedEffect(Unit) {
-                pageLoader.request(page.index)
-            }
             Box(
-                modifier = Modifier.fillMaxWidth().aspectRatio(DEFAULT_ASPECT),
+                modifier = modifier.fillMaxWidth().aspectRatio(DEFAULT_ASPECT),
                 contentAlignment = Alignment.Center,
             ) {
                 val progress by page.progressFlow.collectAsState()
@@ -64,16 +71,25 @@ fun PagerItem(
             }
         }
         Page.State.READY -> {
-            val image = page.image!!.innerImage!!
-            val rect = page.image!!.rect
-            val painter = remember(image) { image.toPainter(rect) }
-            val contentScale = if (webtoon) ContentScale.FillWidth else ContentScale.Inside
+            val image = page.image!!
+            val painter = remember(image) { image.toPainter() }
             val grayScale by Settings.grayScale.collectAsState()
             val invert by Settings.invertedColors.collectAsState()
+            DisposableEffect(image) {
+                image.isRecyclable = false
+                onDispose {
+                    if (image.isRecyclable) {
+                        pageLoader.notifyPageWait(page.index)
+                        image.recycle()
+                    } else {
+                        image.isRecyclable = true
+                    }
+                }
+            }
             Image(
                 painter = painter,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
+                modifier = contentModifier.fillMaxSize(),
                 contentScale = contentScale,
                 colorFilter = when {
                     grayScale && invert -> grayScaleAndInvertFilter
@@ -82,16 +98,31 @@ fun PagerItem(
                     else -> null
                 },
             )
-            if (!webtoon) {
-                val size = painter.intrinsicSize
-                LaunchedEffect(size) {
-                    val contentLocation = ZoomableContentLocation.scaledInsideAndCenterAligned(size)
-                    zoomableState.setContentLocation(contentLocation)
+        }
+        Page.State.BLOCKED -> {
+            SubcomposeAsyncImage(
+                model = AdsPlaceholderFile,
+                contentDescription = null,
+                modifier = modifier.fillMaxSize(),
+                contentScale = if (contentScale == ContentScale.Inside) ContentScale.Fit else contentScale,
+            ) {
+                val placeholderState by painter.state.collectAsState()
+                if (placeholderState is AsyncImagePainter.State.Success) {
+                    SubcomposeAsyncImageContent()
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().aspectRatio(DEFAULT_ASPECT),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (placeholderState is AsyncImagePainter.State.Error) {
+                            Text(text = stringResource(id = R.string.blocked_image))
+                        }
+                    }
                 }
             }
         }
         Page.State.ERROR -> {
-            Box(modifier = Modifier.fillMaxWidth().aspectRatio(DEFAULT_ASPECT)) {
+            Box(modifier = modifier.fillMaxWidth().aspectRatio(DEFAULT_ASPECT)) {
                 Column(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -111,13 +142,9 @@ fun PagerItem(
     }
 }
 
-private fun Image.toPainter(rect: IntRect) = when (this) {
-    is BitmapImage -> BitmapPainter(
-        image = bitmap.asImageBitmap(),
-        srcOffset = rect.topLeft,
-        srcSize = rect.size,
-    )
-    is DrawableImage -> DrawablePainter(drawable)
+private fun Image.toPainter() = when (val image = innerImage) {
+    is BitmapImage -> BitmapPainter(image.bitmap, rect)
+    is DrawableImage -> DrawablePainter(image.drawable)
     else -> unreachable()
 }
 

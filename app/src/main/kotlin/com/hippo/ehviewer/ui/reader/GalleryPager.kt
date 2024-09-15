@@ -1,35 +1,36 @@
 package com.hippo.ehviewer.ui.reader
 
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
-import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerEvent
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.fastFold
+import com.hippo.ehviewer.Settings
+import com.hippo.ehviewer.collectAsState
 import com.hippo.ehviewer.gallery.PageLoader2
-import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingModeType
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingModeType.CONTINUOUS_VERTICAL
-import eu.kanade.tachiyomi.ui.reader.setting.ReadingModeType.DEFAULT
-import eu.kanade.tachiyomi.ui.reader.setting.ReadingModeType.LEFT_TO_RIGHT
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingModeType.RIGHT_TO_LEFT
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingModeType.VERTICAL
-import eu.kanade.tachiyomi.ui.reader.setting.ReadingModeType.WEBTOON
-import me.saket.telephoto.zoomable.ZoomSpec
-import me.saket.telephoto.zoomable.rememberZoomableState
-import me.saket.telephoto.zoomable.zoomable
+import eu.kanade.tachiyomi.ui.reader.setting.TappingInvertMode
+import eu.kanade.tachiyomi.ui.reader.viewer.ViewerNavigation
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.receiveAsFlow
 
 @Composable
 fun GalleryPager(
@@ -37,119 +38,83 @@ fun GalleryPager(
     pagerState: PagerState,
     lazyListState: LazyListState,
     pageLoader: PageLoader2,
+    showNavigationOverlay: Boolean,
+    onNavigationModeChange: () -> Unit,
     onSelectPage: (ReaderPage) -> Unit,
     onMenuRegionClick: () -> Unit,
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
-    val items = pageLoader.pages
-    when (type) {
-        DEFAULT, LEFT_TO_RIGHT, RIGHT_TO_LEFT -> {
-            HorizontalPager(
-                state = pagerState,
-                modifier = modifier,
-                contentPadding = contentPadding,
-                reverseLayout = type == RIGHT_TO_LEFT,
-                key = { it },
-            ) { index ->
-                val page = items[index]
-                val zoomableState = rememberZoomableState(zoomSpec = zoomSpec)
-                val status by page.status.collectAsState()
-                val boxModifier = if (status == Page.State.READY) {
-                    Modifier.zoomable(
-                        state = zoomableState,
-                        onClick = { onMenuRegionClick() },
-                        onLongClick = { onSelectPage(page) },
-                    )
-                } else {
-                    Modifier.combinedClickable(
-                        interactionSource = null,
-                        indication = null,
-                        onClick = { onMenuRegionClick() },
-                    ).fillMaxSize()
-                }
-                Box(
-                    modifier = boxModifier,
-                    contentAlignment = Alignment.Center,
-                ) {
-                    PagerItem(
-                        page = page,
-                        pageLoader = pageLoader,
-                        zoomableState = zoomableState,
-                        webtoon = false,
-                    )
-                }
-            }
-        }
-        VERTICAL -> {
-            VerticalPager(
-                state = pagerState,
-                modifier = modifier,
-                contentPadding = contentPadding,
-                key = { it },
-            ) { index ->
-                val page = items[index]
-                val zoomableState = rememberZoomableState(zoomSpec = zoomSpec)
-                val status by page.status.collectAsState()
-                val boxModifier = if (status == Page.State.READY) {
-                    Modifier.zoomable(
-                        state = zoomableState,
-                        onClick = { onMenuRegionClick() },
-                        onLongClick = { onSelectPage(page) },
-                    )
-                } else {
-                    Modifier.combinedClickable(
-                        interactionSource = null,
-                        indication = null,
-                        onClick = { onMenuRegionClick() },
-                    ).fillMaxSize()
-                }
-                Box(
-                    modifier = boxModifier,
-                    contentAlignment = Alignment.Center,
-                ) {
-                    PagerItem(
-                        page = page,
-                        pageLoader = pageLoader,
-                        zoomableState = zoomableState,
-                        webtoon = false,
-                    )
-                }
-            }
-        }
-        WEBTOON, CONTINUOUS_VERTICAL -> {
-            val zoomableState = rememberZoomableState(zoomSpec = zoomSpec)
-            LazyColumn(
-                modifier = modifier.zoomable(
-                    state = zoomableState,
-                    onClick = { onMenuRegionClick() },
-                    onLongClick = { ofs ->
-                        val info = lazyListState.layoutInfo.visibleItemsInfo.find { info ->
-                            info.offset <= ofs.y && info.offset + info.size > ofs.y
-                        }
-                        if (info == null && type == CONTINUOUS_VERTICAL) {
-                            // Maybe user long-click on gaps? ¯\_(ツ)_/¯
-                            return@zoomable
-                        }
-                        info ?: error("Internal error finding long click item!!! offset:$ofs")
-                        onSelectPage(items[info.index])
-                    },
-                ),
-                state = lazyListState,
-                contentPadding = contentPadding,
-                verticalArrangement = Arrangement.spacedBy(if (type != WEBTOON) 15.dp else 0.dp),
-            ) {
-                items(items, key = { it.index }) { page ->
-                    PagerItem(
-                        page = page,
-                        pageLoader = pageLoader,
-                        zoomableState = zoomableState,
-                        webtoon = true,
-                    )
-                }
-            }
-        }
+    val isPagerType = !ReadingModeType.isWebtoon(type)
+    val pagerNavigation by Settings.readerPagerNav.collectAsState()
+    val pagerInvertMode by Settings.readerPagerNavInverted.collectAsState()
+    val webtoonNavigation by Settings.readerWebtoonNav.collectAsState()
+    val webtoonInvertMode by Settings.readerWebtoonNavInverted.collectAsState()
+    val navigationType = if (isPagerType) pagerNavigation else webtoonNavigation
+    val navigation = remember(navigationType, type) {
+        ViewerNavigation.fromPreference(navigationType, ReadingModeType.isVertical(type))
     }
+    val invertMode = if (isPagerType) pagerInvertMode else webtoonInvertMode
+    var firstLaunch by remember { mutableStateOf(true) }
+    val regions = remember(navigation, invertMode) {
+        if (firstLaunch) {
+            firstLaunch = false
+        } else {
+            onNavigationModeChange()
+        }
+        navigation.invertMode = TappingInvertMode.entries[invertMode]
+        navigation.regions
+    }
+    val navigator by rememberUpdatedState(regions)
+    if (isPagerType) {
+        val channel = remember { Channel<Float>(Channel.CONFLATED) }
+        LaunchedEffect(channel) {
+            channel.receiveAsFlow().collectLatest { delta ->
+                if (delta != 0f) {
+                    if (delta < 0) pagerState.moveToNext() else pagerState.moveToPrevious()
+                }
+            }
+        }
+        PagerViewer(
+            pagerState = pagerState,
+            isRtl = type == RIGHT_TO_LEFT,
+            isVertical = type == VERTICAL,
+            pageLoader = pageLoader,
+            navigator = { navigator },
+            onSelectPage = onSelectPage,
+            onMenuRegionClick = onMenuRegionClick,
+            modifier = modifier.pointerInput(channel) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitScrollEvent()
+                        val delta = calculateMouseWheelScroll(event)
+                        channel.trySend(delta)
+                    }
+                }
+            },
+        )
+    } else {
+        WebtoonViewer(
+            lazyListState = lazyListState,
+            withGaps = type == CONTINUOUS_VERTICAL,
+            pageLoader = pageLoader,
+            navigator = { navigator },
+            onSelectPage = onSelectPage,
+            onMenuRegionClick = onMenuRegionClick,
+            modifier = modifier,
+        )
+    }
+    NavigationOverlay(showNavigationOverlay, regions, modifier = Modifier.fillMaxSize())
 }
 
-private val zoomSpec = ZoomSpec(maxZoomFactor = 3f)
+private suspend fun AwaitPointerEventScope.awaitScrollEvent(): PointerEvent {
+    var event: PointerEvent
+    do {
+        event = awaitPointerEvent()
+    } while (event.type != PointerEventType.Scroll)
+    return event
+}
+
+private fun Density.calculateMouseWheelScroll(event: PointerEvent): Float {
+    // 64 dp value is taken from ViewConfiguration.java, replace with better solution
+    return event.changes.fastFold(0f) { acc, c -> acc + c.scrollDelta.y } * -64.dp.toPx()
+}

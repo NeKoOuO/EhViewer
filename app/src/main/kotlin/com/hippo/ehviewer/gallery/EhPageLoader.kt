@@ -66,10 +66,6 @@ class EhPageLoader(private val mGalleryInfo: GalleryInfo, startPage: Int) :
     override val isReady: Boolean
         get() = ::mSpiderQueen.isInitialized && mSpiderQueen.isReady
 
-    override fun onCancelRequest(index: Int) {
-        mSpiderQueen.cancelRequest(index)
-    }
-
     override fun onGetPages(pages: Int) {}
 
     override fun onGet509(index: Int) {}
@@ -105,7 +101,7 @@ class EhPageLoader(private val mGalleryInfo: GalleryInfo, startPage: Int) :
         notifyPageFailed(index, error)
     }
 
-    override fun preloadPages(pages: List<Int>, pair: Pair<Int, Int>) {
-        mSpiderQueen.preloadPages(pages, pair)
+    override fun prefetchPages(pages: List<Int>, bounds: Pair<Int, Int>) {
+        mSpiderQueen.preloadPages(pages, bounds)
     }
 }

@@ -33,7 +33,6 @@
     <string name="invalid_download_location">似乎下载路径不可用。请到重新设置下载路径。</string>
     <string name="clipboard_gallery_url_snack_message">剪切板里有画廊链接</string>
     <string name="clipboard_gallery_url_snack_action">查看</string>
-    <string name="error_bad_status_code">错误状态码：%d</string>
     <string name="error_timeout">超时</string>
     <string name="error_unknown_host">未知主机</string>
     <string name="error_redirection">太多重定向</string>
@@ -72,7 +71,7 @@
     <string name="search_sr">最低评分</string>
     <string name="search_sp_to">到</string>
     <string name="search_sp_err1">页数最大值至少为 10</string>
-    <string name="search_sp_err2">页数范围差至少为 20</string>
+    <string name="search_sp_err2">页数范围过窄</string>
     <string name="search_sf">禁用排除项：</string>
     <string name="search_sfl">语言</string>
     <string name="search_sfu">上传者</string>
@@ -304,8 +303,6 @@
     <string name="settings_eh_thumb_resolution">缩略图分辨率</string>
     <string name="settings_eh_thumb_resolution_summary">%s，指定分辨率可能使获取缩略图失败</string>
     <string name="settings_eh_thumb_resolution_auto">自动</string>
-    <string name="settings_eh_force_eh_thumb">强制使用 e-hentai 缩略图/API服务器</string>
-    <string name="settings_eh_force_eh_thumb_summary">若 exhentai 加载失败可尝试此项\n注意此项将使用 e-hentai 设置加载图像</string>
     <string name="settings_eh_show_jpn_title">显示日文标题</string>
     <string name="settings_eh_show_jpn_title_summary">需同时在 EHentai 网站设置中启用 Japanese Title</string>
     <string name="settings_eh_show_gallery_pages">显示画廊页数</string>
@@ -324,6 +321,8 @@
     <string name="settings_read_volume_page_fast">快</string>
     <string name="settings_read_volume_page_slow">慢</string>
     <string name="settings_read_reverse_volume">翻转音量键</string>
+    <string name="settings_strip_extraneous_ads">移除外部广告</string>
+    <string name="settings_ads_placeholder">选择替换外部广告的图片</string>
     <string name="settings_download">下载</string>
     <string name="settings_download_download_location">下载路径</string>
     <string name="settings_download_cant_get_download_location">无法获取下载路径</string>
@@ -426,6 +425,8 @@
     <string name="insufficient_funds">余额不足</string>
     <string name="image_limits">图片配额</string>
     <string name="image_limits_summary">已用：%1$d / %2$d</string>
+    <string name="image_limits_normal">无限制</string>
+    <string name="image_limits_restricted">图片分辨率限制为 1280x</string>
     <string name="reset_cost">重置花费：%d GP</string>
     <string name="reset_limits_succeed">成功重置图片配额</string>
     <string name="reset">重置</string>
@@ -496,6 +497,8 @@
     <string name="preload_thumb_aggressively">激进地预载缩略图</string>
     <string name="animate_items">列表项目动画</string>
     <string name="animate_items_summary">如遇崩溃/掉帧请尝试禁用此项</string>
+    <string name="desktop_site">桌面版网站</string>
+    <string name="desktop_site_summary">更高的默认图片分辨率</string>
     <string name="auto_updates">自动检查更新</string>
     <string name="update_frequency_never">从不</string>
     <string name="update_frequency_daily">每天</string>
@@ -605,6 +608,8 @@
     <string name="dark_theme_off">总是关闭</string>
     <string name="dark_theme_on">总是开启</string>
     <string name="pref_crop_borders">裁剪边缘</string>
+    <string name="blocked_image">已屏蔽的图片</string>
+    <string name="show_blocked_image">显示已屏蔽的图片</string>
     <!-- Tachiyomi Reader End-->
 
     <plurals name="page_count">

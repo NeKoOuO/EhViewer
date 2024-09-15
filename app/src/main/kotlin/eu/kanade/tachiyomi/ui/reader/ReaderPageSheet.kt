@@ -18,19 +18,16 @@ import androidx.compose.material.icons.filled.FileCopy
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.hippo.ehviewer.R
-import com.hippo.ehviewer.util.findActivity
-import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import moe.tarsin.kt.andThen
 
 @Composable
@@ -41,6 +38,7 @@ fun ReaderPageSheetMeta(
     copy: () -> Unit,
     save: () -> Unit,
     saveTo: () -> Unit,
+    showAds: (() -> Unit)?,
     dismiss: () -> Unit,
 ) {
     @Composable
@@ -56,6 +54,7 @@ fun ReaderPageSheetMeta(
         modifier = Modifier.fillMaxSize() // Workaround for https://issuetracker.google.com/341594885
             .verticalScroll(rememberScrollState()).navigationBarsPadding(),
     ) {
+        showAds?.let { Item(icon = Icons.Default.Visibility, text = R.string.show_blocked_image, onClick = it) }
         Item(icon = Icons.Default.Refresh, text = R.string.refresh, onClick = retry)
         Item(icon = Icons.Default.Refresh, text = R.string.refresh_original, onClick = retryOrigin)
         Item(icon = Icons.Default.Share, text = R.string.action_share, onClick = share)
@@ -63,18 +62,4 @@ fun ReaderPageSheetMeta(
         Item(icon = Icons.Default.Save, text = R.string.action_save, onClick = save)
         Item(icon = Icons.Default.Save, text = R.string.action_save_to, onClick = saveTo)
     }
-}
-
-@Composable
-fun ReaderPageSheet(page: ReaderPage, dismiss: () -> Unit) {
-    val activity = LocalContext.current.run { remember { findActivity<ReaderActivity>() } }
-    ReaderPageSheetMeta(
-        retry = { activity.retryPage(page.index) },
-        retryOrigin = { activity.retryPage(page.index, true) },
-        share = { activity.shareImage(page.index) },
-        copy = { activity.copyImage(page.index) },
-        save = { activity.saveImage(page.index) },
-        saveTo = { activity.saveImageTo(page.index) },
-        dismiss = dismiss,
-    )
 }

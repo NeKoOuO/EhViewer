@@ -22,7 +22,6 @@ import android.os.StrictMode
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.collection.LruCache
-import androidx.compose.runtime.snapshots.Snapshot
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.coroutineScope
 import coil3.EventListener
@@ -30,7 +29,7 @@ import coil3.SingletonImageLoader
 import coil3.asImage
 import coil3.gif.AnimatedImageDecoder
 import coil3.gif.GifDecoder
-import coil3.network.ktor.KtorNetworkFetcherFactory
+import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.ErrorResult
 import coil3.request.ImageRequest
 import coil3.request.crossfade
@@ -42,7 +41,9 @@ import com.hippo.ehviewer.client.data.GalleryDetail
 import com.hippo.ehviewer.coil.CropBorderInterceptor
 import com.hippo.ehviewer.coil.DownloadThumbInterceptor
 import com.hippo.ehviewer.coil.HardwareBitmapInterceptor
+import com.hippo.ehviewer.coil.MapExtraInfoInterceptor
 import com.hippo.ehviewer.coil.MergeInterceptor
+import com.hippo.ehviewer.coil.QrCodeInterceptor
 import com.hippo.ehviewer.cronet.cronetHttpClient
 import com.hippo.ehviewer.dailycheck.checkDawn
 import com.hippo.ehviewer.dao.SearchDatabase
@@ -55,6 +56,7 @@ import com.hippo.ehviewer.legacy.cleanObsoleteCache
 import com.hippo.ehviewer.ui.keepNoMediaFileStatus
 import com.hippo.ehviewer.ui.lockObserver
 import com.hippo.ehviewer.ui.tools.dataStateFlow
+import com.hippo.ehviewer.ui.tools.initSETConnection
 import com.hippo.ehviewer.util.AppConfig
 import com.hippo.ehviewer.util.Crash
 import com.hippo.ehviewer.util.FavouriteStatusRouter
@@ -67,6 +69,7 @@ import eu.kanade.tachiyomi.util.lang.withUIContext
 import eu.kanade.tachiyomi.util.system.logcat
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import logcat.AndroidLogcatLogger
 import logcat.LogPriority
@@ -83,6 +86,7 @@ class EhApplication :
     Application(),
     SingletonImageLoader.Factory {
     override fun onCreate() {
+        initSETConnection()
         // Initialize Settings on first access
         lifecycleScope.launchIO {
             val mode = Settings.theme
@@ -136,9 +140,6 @@ class EhApplication :
         }
         if (BuildConfig.DEBUG) {
             StrictMode.enableDefaults()
-            Snapshot.registerApplyObserver { anies, _ ->
-                logcat(LogPriority.VERBOSE) { anies.toString() }
-            }
         }
     }
 
@@ -167,6 +168,7 @@ class EhApplication :
     }
 
     override fun newImageLoader(context: Context) = context.imageLoader {
+        interceptorCoroutineContext(Dispatchers.Default)
         components {
             serviceLoaderEnabled(false)
             add(KtorNetworkFetcherFactory { ktorClient })
@@ -176,6 +178,8 @@ class EhApplication :
                 add(HardwareBitmapInterceptor)
             }
             add(CropBorderInterceptor)
+            add(QrCodeInterceptor)
+            add(MapExtraInfoInterceptor)
             if (isAtLeastP) {
                 add(AnimatedImageDecoder.Factory(false))
             } else {

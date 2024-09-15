@@ -28,6 +28,7 @@ import com.hippo.ehviewer.client.EhUrl.getGalleryDetailUrl
 import com.hippo.ehviewer.client.EhUrl.getGalleryMultiPageViewerUrl
 import com.hippo.ehviewer.client.EhUrl.referer
 import com.hippo.ehviewer.client.data.GalleryInfo
+import com.hippo.ehviewer.client.data.hasAds
 import com.hippo.ehviewer.client.ehRequest
 import com.hippo.ehviewer.client.exception.QuotaExceededException
 import com.hippo.ehviewer.client.fetchUsingAsText
@@ -50,6 +51,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -224,7 +226,7 @@ class SpiderQueen private constructor(val galleryInfo: GalleryInfo) : CoroutineS
         check(!(mReadReference < 0 || mDownloadReference < 0)) { "Mode reference < 0" }
     }
 
-    private val prepareJob = launch { doPrepare() }
+    private val prepareJob = async { doPrepare() }
     private val archiveJob = launch(start = CoroutineStart.LAZY) { mSpiderDen.archive() }
 
     private suspend fun doPrepare() {
@@ -235,7 +237,7 @@ class SpiderQueen private constructor(val galleryInfo: GalleryInfo) : CoroutineS
     }
 
     suspend fun awaitReady(): Boolean {
-        prepareJob.join()
+        prepareJob.await()
         return isReady
     }
 
@@ -281,10 +283,6 @@ class SpiderQueen private constructor(val galleryInfo: GalleryInfo) : CoroutineS
                 STATE_NONE
             }
         }
-    }
-
-    fun cancelRequest(index: Int) {
-        mWorkerScope.cancelDecode(index)
     }
 
     fun preloadPages(pages: List<Int>, pair: Pair<Int, Int>) {
@@ -511,10 +509,6 @@ class SpiderQueen private constructor(val galleryInfo: GalleryInfo) : CoroutineS
         var isDownloadMode = false
             private set
 
-        fun cancelDecode(index: Int) {
-            decoder.cancel(index)
-        }
-
         @Synchronized
         fun enterDownloadMode() {
             if (isDownloadMode) return
@@ -693,7 +687,7 @@ class SpiderQueen private constructor(val galleryInfo: GalleryInfo) : CoroutineS
                             updatePageState(index, STATE_FINISHED)
                             return
                         }.onFailure {
-                            mSpiderDen.remove(index)
+                            mSpiderDen.removeIntermediateFiles(index)
                             logcat(WORKER_DEBUG_TAG) { "Download image $index attempt #$times failed" }
                             error = when (it) {
                                 is TimeoutCancellationException -> ERROR_TIMEOUT
@@ -748,9 +742,13 @@ class SpiderQueen private constructor(val galleryInfo: GalleryInfo) : CoroutineS
                 }
             }
 
+            private fun mayBeAd(index: Int) = index > size - 10
+
+            private val hasAds = galleryInfo.hasAds
+
             private suspend fun doInJob(index: Int) {
                 val src = mSpiderDen.getImageSource(index) ?: return
-                val image = Image.decode(src)
+                val image = Image.decode(src, hasAds && Settings.stripExtraneousAds.value && mayBeAd(index))
                 checkNotNull(image)
                 runCatching {
                     currentCoroutineContext().ensureActive()
